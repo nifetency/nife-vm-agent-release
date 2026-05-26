@@ -1,0 +1,83 @@
+name: Release Automation
+on:
+  release:
+    types: [published]
+jobs:
+  update-nife-io:
+    name: Update nife.io Release Metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get release info
+        id: release
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION_CLEAN="${VERSION#v}"
+          RELEASE_DATE=$(date -u +"%Y-%m-%d")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_clean=${VERSION_CLEAN}" >> $GITHUB_OUTPUT
+          echo "release_date=${RELEASE_DATE}" >> $GITHUB_OUTPUT
+      - name: Checkout nife.io repo
+        uses: actions/checkout@v4
+        with:
+          repository: nifetency/nife.io
+          token: ${{ secrets.RELEASE_PAT }}
+          path: nife-io
+      - name: Update release metadata and latest links
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          VERSION_CLEAN="${{ steps.release.outputs.version_clean }}"
+          RELEASE_DATE="${{ steps.release.outputs.release_date }}"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
+          #
+          # Metadata JSON
+          #
+          mkdir -p nife-io/releases
+          cat > nife-io/releases/nife-vm-agent.json <<EOF
+          {
+            "latest":"${VERSION_CLEAN}",
+            "version":"${VERSION_CLEAN}",
+            "tag":"${VERSION}",
+            "release_date":"${RELEASE_DATE}",
+            "release_url":"https://github.com/${{ github.repository }}/releases/tag/${VERSION}",
+            "changelog":"${{ github.event.release.html_url }}"
+          }
+          EOF
+          #
+          # Linux
+          #
+          mkdir -p nife-io/release/linux/x64
+          echo "${BASE_URL}/nife-vm-agent-linux-amd64.tar.gz" \
+            > nife-io/release/linux/x64/latest
+          mkdir -p nife-io/release/linux/x86_64
+          echo "${BASE_URL}/nife-vm-agent-linux-386.tar.gz" \
+            > nife-io/release/linux/x86_64/latest
+          #
+          # Windows
+          #
+          mkdir -p nife-io/release/windows/x64
+          echo "${BASE_URL}/nife-vm-agent-windows-amd64.zip" \
+            > nife-io/release/windows/x64/latest
+          mkdir -p nife-io/release/windows/x86_64
+          echo "${BASE_URL}/nife-vm-agent-windows-386.zip" \
+            > nife-io/release/windows/x86_64/latest
+          #
+          # Darwin/macOS
+          #
+          mkdir -p nife-io/release/darwin/x64
+          echo "${BASE_URL}/nife-vm-agent-darwin-amd64.tar.gz" \
+            > nife-io/release/darwin/x64/latest
+          mkdir -p nife-io/release/darwin/arm64
+          echo "${BASE_URL}/nife-vm-agent-darwin-amd64.tar.gz" \
+            > nife-io/release/darwin/arm64/latest
+          echo "Updated files:"
+          find nife-io/release -type f | sort
+      - name: Commit and push changes
+        working-directory: nife-io
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add releases/nife-vm-agent.json release/
+          git commit -m \
+            "chore: update nife-vm-agent release to ${{ steps.release.outputs.version }}" \
+            || echo "No changes"
+          git push
